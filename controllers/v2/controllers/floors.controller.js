@@ -3,6 +3,15 @@ import Floor from '../../../models/v2/models/floor.model.js';
 export const createFloor = async (req, res) => {
   const { floorNumber, floorName, apartmentId } = req.body;
   try {
+    //check if the floor exisits
+    const floorExists = await Floor.findOne({
+      floorNumber: floorNumber,
+      floorName: floorName,
+      apartment: apartmentId,
+    });
+    if (floorExists) {
+      return res.status(404).json({ message: 'Floor Already Exists!' });
+    }
     const floor = await Floor.create({
       floorNumber,
       floorName,
