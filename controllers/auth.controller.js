@@ -94,8 +94,8 @@ export const login = async (req, res) => {
       .cookie('token', accessToken, {
         httpOnly: true,
         maxAge: expiresIn,
-        secure: true, // Set to true if using HTTPS
-        sameSite: 'strict', // Adjust as per your security requirements
+        // secure: true, // Set to true if using HTTPS
+        // sameSite: 'strict', // Adjust as per your security requirements
       })
       .json(user);
   } catch (err) {
