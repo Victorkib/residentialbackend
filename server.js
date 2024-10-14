@@ -19,7 +19,7 @@ const port = process.env.PORT || 5500;
 // Middleware
 app.use(
   cors({
-    origin: 'https://rvhms.netlify.app',
+    origin: 'https://vshms.netlify.app/',
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'DELETE', 'PATCH', 'PUT'],
     allowedHeaders: ['Content-Type'],
