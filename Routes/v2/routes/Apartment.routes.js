@@ -19,6 +19,10 @@ router.post(
 router.get('/getAllApartments', allApartments);
 router.get('/:id', apartment);
 router.put('/:id', authorizeRoles('super_admin'), updateApartment);
-router.delete('/:id', authorizeRoles('super_admin'), deleteApartment);
+router.delete(
+  '/deleteApartment/:apartmentId',
+  authorizeRoles('super_admin'),
+  deleteApartment
+);
 
 export default router;
