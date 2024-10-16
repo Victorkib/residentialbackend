@@ -75,16 +75,16 @@ const sendEmailWithMailjet = async (to, subject, text) => {
 // Function to send email (primary and fallback)
 export const sendEmail = async (to, subject, text) => {
   try {
-    await sendEmailWithNodemailer(to, subject, text);
+    await sendEmailWithMailjet(to, subject, text);
   } catch (err) {
     console.error(
-      'Failed to send email via Nodemailer  , trying Mailjet',
+      'Failed to send email via Mailjet, trying Nodemailer',
       err.message
     );
     try {
-      await sendEmailWithMailjet(to, subject, text);
+      await sendEmailWithNodemailer(to, subject, text);
     } catch (error) {
-      console.error('Failed to send email via Mailjet as well', error.message);
+      console.error('Failed to send email via Nodemailer as well', err);
       throw new Error(
         'Failed to send email via both Mailjet and Nodemailer',
         error.message
