@@ -8,6 +8,9 @@ const KraSchema = new mongoose.Schema(
     month: {
       type: String,
     },
+    year: {
+      type: String,
+    },
     rent: {
       type: Number,
     },

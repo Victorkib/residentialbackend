@@ -3,11 +3,12 @@ import Kra from '../models/Kra.js';
 
 //create kra record
 export const createKraRecord = async (req, res) => {
-  const { date, month, rent, tax, referenceNo } = req.body;
+  const { date, month, selectedYear, rent, tax, referenceNo } = req.body;
   try {
     const kra = await Kra.create({
       date,
       month,
+      year: selectedYear,
       rent,
       tax,
       referenceNo,

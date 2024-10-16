@@ -1161,7 +1161,7 @@ export const getAllRentsPaid = async (req, res) => {
     res.status(200).json({ groupedByYear: response });
   } catch (err) {
     console.error('Error fetching total rent for all payments:', err.message);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: err.message || 'Internal server error' });
   }
 };
 
