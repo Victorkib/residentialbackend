@@ -18,13 +18,13 @@ import InvoiceRoutes from '../routes/invoice.routes.js';
 import floorRoutes from '../routes/floor.routes.js';
 import clearanceRoutes from '../routes/clearance.routes.js';
 
-// import verifyJWT from '../../../middleware/jwtMiddleware.js';
+import verifyJWT from '../../../middleware/jwtMiddleware.js';
 
 const router = express.Router();
 
 // Apply the JWT middleware globally (except for /api/auth)
 // This should be placed after defining your API routes, if you have routes that shouldn't require JWT
-// router.use(verifyJWT);
+router.use(verifyJWT);
 
 // Define your API routes
 router.use('/jwt', verifyTokenRoute);
