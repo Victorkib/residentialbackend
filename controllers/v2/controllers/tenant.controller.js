@@ -1879,8 +1879,10 @@ export const clearance = async (req, res) => {
 
     // Initialize the paintingFee and miscellaneous charges
     const paintingFeeAmount = parseFloat(paintingFee || 0);
-    const miscellaneousAmount = parseFloat(miscellaneous || 0);
+    // Create an array for miscellaneous records
+    const miscellaneousRecords = [];
 
+    // Create the clearance object
     let clearance = new Clearance({
       tenant: tenantId,
       year,
@@ -1895,19 +1897,13 @@ export const clearance = async (req, res) => {
         transactions: [],
         deficitHistory: [],
       },
-      miscellaneous: {
-        expected: miscellaneousAmount,
-        amount: 0,
-        paid: false,
-        transactions: [],
-        deficitHistory: [],
-      },
+      miscellaneous: miscellaneousRecords, // Update to handle multiple misc records
       isCleared: false,
       totalAmountPaid: 0,
       globalDeficit: 0,
       globalDeficitHistory: [],
-      globalTransactions: [], // New global transaction field
-      globalAmountPaid: 0, // New global amount paid field
+      globalTransactions: [],
+      globalAmountPaid: 0,
     });
 
     clearance.referenceNoHistory.push({
@@ -1980,66 +1976,83 @@ export const clearance = async (req, res) => {
         });
       }
 
-      // Handle miscellaneous fee
-      if (remaining >= miscellaneousAmount) {
-        clearance.miscellaneous.amount = miscellaneousAmount;
-        clearance.miscellaneous.paid = true;
-        remaining -= miscellaneousAmount;
+      // Iterate over the miscellaneous items sent from the frontend
+      for (const item of miscellaneous) {
+        const { title, amount } = item; // Destructure title and amount from the current item
 
-        // Record the transaction
-        let miscellaneousTransaction = {
-          amount: miscellaneousAmount,
-          expected: miscellaneousAmount,
-          date: date,
-          referenceNumber: tenant.deposits.referenceNo,
-          description: 'Miscellaneous fee paid using deposits',
+        let miscellaneousEntry = {
+          title: title,
+          expected: amount,
+          amount: 0,
+          paid: false,
+          transactions: [],
+          deficit: amount,
+          deficitHistory: [],
         };
-        clearance.miscellaneous.transactions.push(miscellaneousTransaction);
 
-        // Add to global transactions
-        clearance.globalTransactions.push(miscellaneousTransaction);
-        clearance.globalAmountPaid += miscellaneousAmount;
-      } else if (remaining > 0) {
-        let partialAmountPaid = remaining;
-        let deficit = miscellaneousAmount - partialAmountPaid;
-        remaining = 0;
+        // Handle payment logic for each miscellaneous item
+        if (remaining >= amount) {
+          miscellaneousEntry.amount = amount;
+          miscellaneousEntry.paid = true;
+          remaining -= amount;
+          miscellaneousEntry.deficit -= amount;
 
-        clearance.miscellaneous.amount = partialAmountPaid;
-        clearance.miscellaneous.paid = false;
-        clearance.miscellaneous.deficit = deficit;
+          // Record the transaction
+          let miscellaneousTransaction = {
+            amount: amount,
+            expected: amount,
+            date: date,
+            referenceNumber: tenant.deposits.referenceNo,
+            description: `Miscellaneous fee paid for ${title} using deposits`,
+          };
+          miscellaneousEntry.transactions.push(miscellaneousTransaction);
 
-        // Record the transaction
-        let partialMiscellaneousTransaction = {
-          amount: partialAmountPaid,
-          expected: miscellaneousAmount,
-          date: date,
-          referenceNumber: tenant.deposits.referenceNo,
-          description: 'Partial payment of miscellaneous fee using deposits',
-        };
-        clearance.miscellaneous.transactions.push(
-          partialMiscellaneousTransaction
-        );
+          // Add to global transactions
+          clearance.globalTransactions.push(miscellaneousTransaction);
+          clearance.globalAmountPaid += amount;
+        } else if (remaining > 0) {
+          let partialAmountPaid = remaining;
+          let deficit = amount - partialAmountPaid;
+          remaining = 0;
 
-        // Add to global transactions
-        clearance.globalTransactions.push(partialMiscellaneousTransaction);
-        clearance.globalAmountPaid += partialAmountPaid;
+          miscellaneousEntry.amount = partialAmountPaid;
+          miscellaneousEntry.paid = false;
+          miscellaneousEntry.deficit = deficit;
 
-        // Record the deficit
-        clearance.miscellaneous.deficitHistory.push({
-          amount: deficit,
-          date: date,
-          description: 'Remaining amount due for miscellaneous fee',
-        });
-      } else {
-        clearance.miscellaneous.amount = 0;
-        clearance.miscellaneous.paid = false;
-        clearance.miscellaneous.deficit = miscellaneousAmount;
+          // Record the transaction
+          let partialMiscellaneousTransaction = {
+            amount: partialAmountPaid,
+            expected: amount,
+            date: date,
+            referenceNumber: tenant.deposits.referenceNo,
+            description: `Partial payment of miscellaneous fee for ${title} using deposits`,
+          };
+          miscellaneousEntry.transactions.push(partialMiscellaneousTransaction);
 
-        clearance.miscellaneous.deficitHistory.push({
-          amount: miscellaneousAmount,
-          date: date,
-          description: 'Full amount due for miscellaneous fee',
-        });
+          // Add to global transactions
+          clearance.globalTransactions.push(partialMiscellaneousTransaction);
+          clearance.globalAmountPaid += partialAmountPaid;
+
+          // Record the deficit
+          miscellaneousEntry.deficitHistory.push({
+            amount: deficit,
+            date: date,
+            description: `Remaining amount due for miscellaneous fee for ${title}`,
+          });
+        } else {
+          miscellaneousEntry.amount = 0;
+          miscellaneousEntry.paid = false;
+          miscellaneousEntry.deficit = amount;
+
+          miscellaneousEntry.deficitHistory.push({
+            amount: amount,
+            date: date,
+            description: `Full amount due for miscellaneous fee for ${title}`,
+          });
+        }
+
+        // Add the processed miscellaneous entry to the clearance
+        clearance.miscellaneous.push(miscellaneousEntry);
       }
 
       //handle extra amount remaining
@@ -2054,18 +2067,28 @@ export const clearance = async (req, res) => {
       }
 
       // Update isCleared status
-      if (clearance.paintingFee.paid && clearance.miscellaneous.paid) {
+      if (
+        clearance.paintingFee.paid &&
+        clearance.miscellaneous.every((misc) => misc.paid)
+      ) {
         clearance.isCleared = true;
       }
 
-      // Update totalAmountPaid
+      // Calculate totalAmountPaid
       clearance.totalAmountPaid =
-        clearance.paintingFee.amount + clearance.miscellaneous.amount;
+        parseFloat(clearance.paintingFee.amount) +
+        clearance.miscellaneous.reduce(
+          (total, misc) => total + parseFloat(misc.amount),
+          0
+        );
 
       // Update globalDeficit
       clearance.globalDeficit =
-        (clearance.paintingFee.deficit || 0) +
-        (clearance.miscellaneous.deficit || 0);
+        parseFloat(clearance.paintingFee.deficit || 0) +
+        clearance.miscellaneous.reduce(
+          (total, misc) => total + parseFloat(misc.deficit || 0),
+          0
+        );
 
       // Record globalDeficitHistory if there is any deficit
       if (clearance.globalDeficit > 0) {

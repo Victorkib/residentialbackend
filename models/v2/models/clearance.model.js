@@ -81,20 +81,24 @@ const clearanceSchema = new Schema(
         },
       ],
     },
-    miscellaneous: {
-      expected: { type: Number, default: 0 },
-      amount: { type: Number, default: 0 },
-      paid: { type: Boolean, default: false },
-      transactions: [transactionSchema],
-      deficit: { type: Number, default: 0 },
-      deficitHistory: [
-        {
-          amount: { type: Number },
-          date: { type: Date },
-          description: { type: String },
-        },
-      ],
-    },
+    miscellaneous: [
+      {
+        title: { type: String, required: true },
+        expected: { type: Number, default: 0 },
+        amount: { type: Number, default: 0 },
+        paid: { type: Boolean, default: false },
+        transactions: [transactionSchema],
+        deficit: { type: Number, default: 0 },
+        deficitHistory: [
+          {
+            amount: { type: Number },
+            date: { type: Date },
+            description: { type: String },
+          },
+        ],
+      },
+    ],
+
     isCleared: {
       type: Boolean,
       default: false,
