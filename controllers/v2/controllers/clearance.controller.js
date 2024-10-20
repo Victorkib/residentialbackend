@@ -254,7 +254,8 @@ export const updateClearanceData = async (req, res) => {
     });
 
     // Step 4: Handle remaining amount as overpay (if any)
-    clearance.totalAmountPaid += parseFloat(amount); // Ensure amount is treated as a float
+    clearance.totalAmountPaid =
+      parseFloat(clearance.totalAmountPaid) + parseFloat(amount); // Ensure amount is treated as a float
     if (remainingAmount > 0) {
       clearance.overpay += parseFloat(remainingAmount);
 
@@ -277,6 +278,7 @@ export const updateClearanceData = async (req, res) => {
 
     res.status(200).json({
       message: 'Clearance data updated successfully',
+      clearance,
       remainingAmount,
     });
   } catch (error) {
