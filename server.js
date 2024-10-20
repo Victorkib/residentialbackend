@@ -27,13 +27,6 @@ app.use(
   })
 );
 
-// app.use((req, res, next) => {
-//   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-//   res.setHeader('Pragma', 'no-cache');
-//   res.setHeader('Expires', '0');
-//   next();
-// });
-
 app.use(express.json()); // To handle JSON data
 app.use(express.urlencoded({ extended: true })); // To handle form data
 app.use(cookieParser());

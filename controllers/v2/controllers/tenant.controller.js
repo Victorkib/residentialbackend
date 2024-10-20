@@ -20,13 +20,14 @@ export const createTenant = async (req, res) => {
     nationalId,
     phoneNo,
     placementDate,
+    floorNumber,
     houseNo,
     apartmentId,
     emergencyContactNumber,
     emergencyContactName,
   } = req.body;
 
-  // Check if houseNo is provided
+  // Check if required fields are provided
   if (
     !name ||
     !email ||
@@ -45,34 +46,47 @@ export const createTenant = async (req, res) => {
     // Check if the houseNo already exists
     const existingTenant = await Tenant.findOne({
       'houseDetails.houseNo': houseNo,
+      'houseDetails.floorNo': Number(floorNumber) || 0,
       apartmentId: apartmentId,
     });
     if (existingTenant) {
       return res.status(400).json({
-        message: 'House number is already assigned to another tenant.',
+        message: 'House is already assigned to another tenant.',
       });
     }
 
+    // Fetch the house payment details
+    const housePaymentDetails = await House.findOne({
+      houseName: houseNo,
+      floor: floorNumber,
+      apartment: apartmentId,
+    });
+
+    if (!housePaymentDetails) {
+      return res.status(404).json({ message: 'No such house found!' });
+    }
+
     // Determine house details
-    let rent = 0;
-    let rentDeposit = 0;
-    let waterDeposit = 0;
-    let garbageFee = 0;
+    let rent = parseFloat(housePaymentDetails.rentPayable);
+    let rentDeposit = parseFloat(housePaymentDetails.rentDeposit);
+    let waterDeposit = parseFloat(housePaymentDetails.waterDeposit);
+    let garbageFee = 150;
+
+    // Extract other deposits if available
+    let otherDeposits = [];
 
     if (
-      houseNo.endsWith('A') ||
-      houseNo.endsWith('B') ||
-      houseNo.endsWith('C')
+      housePaymentDetails.otherDeposits &&
+      Array.isArray(housePaymentDetails.otherDeposits)
     ) {
-      rent = 17000;
-      rentDeposit = 17000;
-      waterDeposit = 2500;
-      garbageFee = 150;
-    } else {
-      rent = 15000;
-      rentDeposit = 15000;
-      waterDeposit = 2500;
-      garbageFee = 150;
+      housePaymentDetails.otherDeposits.forEach((deposit) => {
+        if (deposit.title && parseFloat(deposit.amount) > 0) {
+          otherDeposits.push({
+            title: deposit.title,
+            amount: parseFloat(deposit.amount),
+          });
+        }
+      });
     }
 
     const existingNationalId = await Tenant.findOne({ nationalId });
@@ -82,12 +96,8 @@ export const createTenant = async (req, res) => {
         .json({ message: 'Tenant National ID already exists!' });
     }
 
-    let houseName = 'House ' + houseNo; // Assuming houseNo is defined and valid
-    const match = houseNo.match(/\d+/);
-    const floorNumber = match ? match[0] : null; // Extract the numeric part
-
     const existingTenantInHouse = await House.findOne({
-      houseName: houseName,
+      houseName: houseNo,
       floor: floorNumber,
       apartment: apartmentId,
       isOccupied: true,
@@ -97,7 +107,7 @@ export const createTenant = async (req, res) => {
     }
 
     const house = await House.findOneAndUpdate(
-      { floor: floorNumber, houseName, apartment: apartmentId },
+      { floor: floorNumber, houseName: houseNo, apartment: apartmentId },
       { isOccupied: true },
       { new: true }
     );
@@ -105,7 +115,7 @@ export const createTenant = async (req, res) => {
       return res.status(404).json({ message: 'House not found!' });
     }
 
-    // Create tenant
+    // Create tenant with deposits, including other deposits in houseDetails
     const tenant = new Tenant({
       name,
       email,
@@ -115,10 +125,12 @@ export const createTenant = async (req, res) => {
       apartmentId,
       houseDetails: {
         houseNo,
-        rent,
-        rentDeposit,
-        waterDeposit,
-        garbageFee,
+        floorNo: parseFloat(floorNumber),
+        rent: parseFloat(rent),
+        rentDeposit: parseFloat(rentDeposit),
+        waterDeposit: parseFloat(waterDeposit),
+        garbageFee: garbageFee,
+        otherDeposits: otherDeposits, // Add other deposits here
       },
       deposits: {
         rentDeposit: 0,
@@ -707,10 +719,117 @@ export const addSingleAmountDeposit = async (req, res) => {
       });
     }
 
+    // Ensure tenant.otherDeposits exists and initialize if necessary
+    if (!tenant.otherDeposits || !Array.isArray(tenant.otherDeposits)) {
+      tenant.otherDeposits = [];
+    }
+
+    // Iterate over valid extra deposits and handle payment allocation
+    if (tenant.houseDetails.otherDeposits.length > 0) {
+      tenant.houseDetails.otherDeposits.forEach((extraDeposit) => {
+        const { title, amount: extraDepositRequiredAmount } = extraDeposit;
+
+        // Check if the extra deposit has a valid title and non-zero amount
+        if (title && parseFloat(extraDepositRequiredAmount) > 0) {
+          // Find the index of the existing deposit record or -1 if not found
+          let depositIndex = tenant.otherDeposits.findIndex(
+            (d) => d.title === title
+          );
+
+          let tenantDepositRecord;
+
+          if (depositIndex === -1) {
+            // Create a new record if not found
+            tenantDepositRecord = {
+              title,
+              amount: 0,
+              excess: 0,
+              deficit: 0,
+              transactionHistory: [],
+              excessHistory: [],
+              deficitHistory: [],
+            };
+            tenant.otherDeposits.push(tenantDepositRecord);
+            depositIndex = tenant.otherDeposits.length - 1;
+          } else {
+            // Use the existing record
+            tenantDepositRecord = tenant.otherDeposits[depositIndex];
+          }
+
+          if (remainingAmount > 0) {
+            // Calculate how much of the remaining amount can be allocated to this extra deposit
+            const extraDepositPaidAmount = Math.min(
+              remainingAmount,
+              parseFloat(extraDepositRequiredAmount)
+            );
+            remainingAmount -= extraDepositPaidAmount; // Deduct from remainingAmount
+
+            // Record the payment transaction
+            const previousAmount = tenantDepositRecord.amount;
+            tenantDepositRecord.amount += extraDepositPaidAmount;
+
+            tenantDepositRecord.transactionHistory.push({
+              date: depositDate,
+              amount: extraDepositPaidAmount,
+              referenceNo, // The reference number for the transaction
+              previousAmount, // Amount before this payment
+            });
+
+            // Handle deficit (partial payment scenario)
+            const extraDepositDeficit =
+              parseFloat(extraDepositRequiredAmount) - extraDepositPaidAmount;
+            if (extraDepositDeficit > 0) {
+              tenantDepositRecord.deficit += extraDepositDeficit;
+              tenantDepositRecord.deficitHistory.push({
+                date: depositDate,
+                amount: extraDepositDeficit,
+                description: `${title} deposit partial deficit recorded`,
+              });
+            }
+
+            // Handle excess (though unlikely, kept for future implementations)
+            const extraDepositExcess =
+              extraDepositPaidAmount - parseFloat(extraDepositRequiredAmount);
+            if (extraDepositExcess > 0) {
+              tenantDepositRecord.excess += extraDepositExcess;
+              tenantDepositRecord.excessHistory.push({
+                date: depositDate,
+                amount: extraDepositExcess,
+                description: `${title} deposit excess recorded`,
+              });
+            }
+          } else {
+            // Record full deficit when there's no remaining amount
+            const fullDeficit = parseFloat(extraDepositRequiredAmount);
+            tenantDepositRecord.deficit += fullDeficit;
+            tenantDepositRecord.deficitHistory.push({
+              date: depositDate,
+              amount: fullDeficit,
+              description: `${title} deposit full deficit recorded due to insufficient funds`,
+            });
+          }
+
+          // Update the record in the array
+          tenant.otherDeposits[depositIndex] = tenantDepositRecord;
+        }
+      });
+
+      // Mark the otherDeposits array as modified
+      tenant.markModified('otherDeposits');
+
+      // Save the tenant document
+      try {
+        await tenant.save();
+      } catch (error) {
+        console.error('Error in other depostis handling: ', error);
+      }
+    }
+
     // Allocate to initial rent payment if deposits are fully satisfied
     if (
       tenant.deposits.rentDeposit >= houseRentDeposit &&
-      tenant.deposits.waterDeposit >= houseWaterDeposit
+      tenant.deposits.waterDeposit >= houseWaterDeposit &&
+      remainingAmount > 0
     ) {
       if (remainingAmount > 0) {
         initialRentPayment = Math.min(remainingAmount, requiredInitialRent);
@@ -800,9 +919,25 @@ export const addSingleAmountDeposit = async (req, res) => {
       tenant.deposits.rentDeposit +
       tenant.deposits.waterDeposit +
       tenant.deposits.initialRentPayment;
+
+    // Initialize a flag to check if all extra deposits are cleared
+    let allExtraDepositsCleared = true;
+
+    // Check each extra deposit for deficits
+    for (const extraDeposit of tenant.otherDeposits) {
+      if (extraDeposit.deficit > 0) {
+        allExtraDepositsCleared = false;
+        extraDeposit.isCleared = false;
+        break; // Stop checking further
+      } else {
+        extraDeposit.isCleared = true;
+      }
+    }
+    // Calculate the shortfall
     const shortfall = totalRequiredDeposit - totalPaidDeposit;
 
-    tenant.deposits.isCleared = shortfall <= 0;
+    // Update the tenant's clearance status based on shortfall and extra deposits
+    tenant.deposits.isCleared = allExtraDepositsCleared && shortfall <= 0;
 
     // Record the total deposit transaction
     tenant.depositHistory.push({
@@ -949,7 +1084,74 @@ export const updateWithIndividualDepoAmount = async (req, res) => {
       }
     }
 
-    // Step 3: Handle Initial Rent Payment
+    // Step 3: Handle Other Deposits
+    if (
+      remainingPayment > 0 &&
+      tenant.otherDeposits &&
+      Array.isArray(tenant.otherDeposits)
+    ) {
+      tenant.otherDeposits.forEach((deposit) => {
+        // Only process deposits that have a deficit greater than 0
+        if (deposit.deficit > 0) {
+          const deficitAmount = parseFloat(deposit.deficit);
+
+          // Determine how much we can allocate to this deposit (partial or full coverage)
+          const allocatedAmount = Math.min(deficitAmount, remainingPayment);
+
+          // Update the deposit amount with the allocated payment
+          const previousAmount = deposit.amount;
+          deposit.amount += allocatedAmount;
+
+          // Reduce the remaining payment
+          remainingPayment -= allocatedAmount;
+
+          // Record the payment transaction
+          deposit.transactionHistory.push({
+            date: depositDate,
+            amount: allocatedAmount,
+            previousAmount,
+            referenceNo: referenceNo || '',
+          });
+
+          // Check if the deficit is fully or partially satisfied
+          const remainingDeficit = deficitAmount - allocatedAmount;
+          if (remainingDeficit > 0) {
+            // Partial coverage, update the deficit
+            deposit.deficit = remainingDeficit;
+
+            // Record deficit change in deficitHistory
+            deposit.deficitHistory.push({
+              date: depositDate,
+              amount: remainingDeficit,
+              description: `${deposit.title} deposit partial deficit remaining after payment`,
+            });
+          } else {
+            // Full coverage, clear the deficit
+            deposit.deficit = 0;
+
+            // Record the full satisfaction of the deficit in deficitHistory
+            deposit.deficitHistory.push({
+              date: depositDate,
+              amount: 0,
+              description: `${deposit.title} deposit fully satisfied`,
+            });
+          }
+
+          // Log the transaction for debugging purposes
+          console.log(
+            `Processed ${allocatedAmount} payment for ${deposit.title} deposit.`
+          );
+          console.log(
+            `Updated ${deposit.title} amount to ${deposit.amount}, remaining deficit: ${deposit.deficit}`
+          );
+        }
+      });
+
+      // Mark the otherDeposits array as modified for MongoDB tracking
+      tenant.markModified('otherDeposits');
+    }
+
+    // Step 4: Handle Initial Rent Payment
     if (remainingPayment > 0) {
       // Check if there's a deficit in initialRentPayment
       if (deposits.initialRentPaymentDeficit > 0) {
@@ -1040,7 +1242,7 @@ export const updateWithIndividualDepoAmount = async (req, res) => {
       }
     }
 
-    // Step 4: Handle Excess Amount
+    // Step 5: Handle Excess Amount
     if (remainingPayment > 0) {
       tenant.excessAmount += parseFloat(remainingPayment);
       tenant.excessHistory.push({
@@ -1055,7 +1257,7 @@ export const updateWithIndividualDepoAmount = async (req, res) => {
     const totalAmount =
       parseFloat(deposits.initialRentPayment) + parseFloat(tenant.excessAmount);
 
-    // Step 5: Record the Payment
+    // Step 6: Record the Payment
     console.log('tenantId: ', tenantId);
     console.log('totalAmount: ', totalAmount);
     console.log('depositDate: ', depositDate);
@@ -1063,11 +1265,17 @@ export const updateWithIndividualDepoAmount = async (req, res) => {
 
     const formattedPlacementDate = new Date(tenant.placementDate);
 
-    // Update isCleared field and add global record of totals
+    // Step 7: Update isCleared field and add global record of totals
+    const checkOtherDepositsCleared = tenant.otherDeposits.every(
+      (deposit) => deposit.deficit <= 0
+    );
+
+    // Set isCleared to true only if all required deposits and otherDeposits have no deficits
     tenant.deposits.isCleared =
       deposits.rentDeposit >= houseDetails.rentDeposit &&
       deposits.waterDeposit >= houseDetails.waterDeposit &&
-      deposits.initialRentPayment >= houseDetails.rent;
+      deposits.initialRentPayment >= houseDetails.rent &&
+      checkOtherDepositsCleared; // Ensure no deficits in other deposits
 
     if (tenant.deposits.isCleared) {
       await createPaymentRecord(
@@ -1192,7 +1400,7 @@ export const getToBeClearedTenants = async (req, res) => {
 // Get a Tenant by ID
 export const getTenantById = async (req, res) => {
   try {
-    const tenant = await Tenant.findById(req.params.id);
+    const tenant = await Tenant.findById(req.params.id).populate('apartmentId');
     if (!tenant) return res.status(404).json({ message: 'Tenant not found' });
     res.status(200).json(tenant);
   } catch (error) {
@@ -1292,11 +1500,11 @@ export const deleteTenant = async (req, res) => {
 
     // 3. Find the tenant's house by houseName and houseNo from tenant's houseDetails
     const houseNo = tenant.houseDetails.houseNo;
+    const floorNumber = tenant.houseDetails.floorNo;
     const apartmentId = tenant.apartmentId;
-    console.log('hoiseNo: ', houseNo);
-    let houseName = 'House ' + houseNo;
     const house = await House.findOne({
-      houseName: houseName,
+      houseName: houseNo,
+      floor: floorNumber,
       apartment: apartmentId,
     });
     if (!house) {
@@ -1399,10 +1607,12 @@ export const updateSingleTenantData = async (req, res) => {
     //update the house if it has changed
     if (tenant.houseDetails.houseNo !== req.body.houseDetails.houseNo) {
       //make the original house not occupied
-      const houseName = 'House' + ' ' + tenant?.houseDetails?.houseNo;
+      const houseName = tenant?.houseDetails?.houseNo;
+      const floorNumber = tenant.houseDetails.floorNo;
       const house = await House.findOneAndUpdate(
         {
           houseName: houseName,
+          floor: floorNumber,
           apartment: tenant.apartmentId,
         },
         { isOccupied: false },
@@ -1412,10 +1622,12 @@ export const updateSingleTenantData = async (req, res) => {
         return res.status(404).json({ mesage: 'No previous house found!' });
       }
       //from there make the new chosen house occupied
-      const newHouseName = 'House' + ' ' + req?.body?.houseDetails?.houseNo;
+      const newHouseName = req?.body?.houseDetails?.houseNo;
+      const newFloorNo = req?.body?.houseDetails?.floorNo;
       //check if there is a tenant in the new house
       const isHouseOccupied = await House.findOne({
         houseName: newHouseName,
+        floor: newFloorNo,
         apartment: req.body.apartmentId,
       });
       if (isHouseOccupied.isOccupied) {
@@ -1425,6 +1637,7 @@ export const updateSingleTenantData = async (req, res) => {
       const newHouse = await House.findOneAndUpdate(
         {
           houseName: newHouseName,
+          floor: newFloorNo,
           apartment: req.body.apartmentId,
         },
         { isOccupied: true },
@@ -2431,11 +2644,11 @@ const deleteTenantById = async (tenantId) => {
 
     // 2. Find the tenant's house by houseName and houseNo from tenant's houseDetails
     const houseNo = tenant.houseDetails.houseNo;
+    const floorNo = tenant.houseDetails.floorNo;
     const apartmentId = tenant.apartmentId;
-    console.log('houseNo: ', houseNo);
-    let houseName = 'House ' + houseNo;
     const house = await House.findOne({
-      houseName: houseName,
+      houseName: houseNo,
+      floor: floorNo,
       apartment: apartmentId,
     });
     if (!house) {

@@ -26,10 +26,17 @@ const depositHistorySchema = new mongoose.Schema({
 
 const houseDetailsSchema = new mongoose.Schema({
   houseNo: { type: String, required: true },
+  floorNo: { type: Number, required: true },
   rent: { type: Number, required: true }, // Monthly rent value
   rentDeposit: { type: Number, required: true }, // Rent deposit value
-  waterDeposit: { type: Number, required: true }, // Monthly water bill
+  waterDeposit: { type: Number, required: true }, // Water deposit value
   garbageFee: { type: Number, required: true }, // Monthly garbage fee
+  otherDeposits: [
+    {
+      title: { type: String, required: true }, // Title of the deposit (e.g., "Security Deposit")
+      amount: { type: Number, required: true }, // Value of the deposit
+    },
+  ],
 });
 
 const depositDateHistorySchema = new mongoose.Schema({
@@ -37,6 +44,35 @@ const depositDateHistorySchema = new mongoose.Schema({
   referenceNoUsed: { type: String },
   amount: { type: Number },
   description: { type: String },
+});
+
+const otherDepositSchema = new mongoose.Schema({
+  title: { type: String, required: true }, // Title of the deposit (e.g., "Security Deposit")
+  amount: { type: Number, default: 0 }, // Initial deposit value
+  transactionHistory: [
+    {
+      date: { type: Date, required: true },
+      amount: { type: Number, required: true },
+      referenceNo: { type: String }, // Optional reference number for the transaction
+      previousAmount: { type: Number, required: true }, // The amount before the transaction
+    },
+  ], // Transaction history for this deposit
+  excess: { type: Number, default: 0 }, // Excess amount
+  excessHistory: [
+    {
+      date: { type: Date, required: true },
+      amount: { type: Number, required: true },
+      description: { type: String }, // Auto-generated description for context
+    },
+  ], // History of excess
+  deficit: { type: Number, default: 0 }, // Deficit amount
+  deficitHistory: [
+    {
+      date: { type: Date, required: true },
+      amount: { type: Number, required: true },
+      description: { type: String }, // Auto-generated description for context
+    },
+  ], // History of deficit
 });
 
 const tenantSchema = new mongoose.Schema(
@@ -91,6 +127,8 @@ const tenantSchema = new mongoose.Schema(
       referenceNo: { type: String },
       isCleared: { type: Boolean, default: false }, // Deposit clearance status
     },
+    // New section for other deposits
+    otherDeposits: [otherDepositSchema], // Array to handle multiple other deposits like security deposit, etc.
     excessAmount: { type: Number, default: 0 }, // Current excess amount
     excessHistory: [excessDeficitHistorySchema], // Array to track excess amounts over time
     depositHistory: [depositHistorySchema], // To track deposit payments

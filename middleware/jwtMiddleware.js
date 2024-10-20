@@ -6,7 +6,7 @@ dotenv.config();
 // JWT verification middleware
 const verifyJWT = (req, res, next) => {
   // Allow access to /api/auth routes without checking the token
-  if (req.path.startsWith('/api/auth')) {
+  if (req.path.startsWith('/auth')) {
     return next();
   }
 
