@@ -5,6 +5,12 @@ import Kra from '../models/Kra.js';
 export const createKraRecord = async (req, res) => {
   const { date, month, selectedYear, rent, tax, referenceNo } = req.body;
   try {
+    //check if there is a kra already filled
+    const isKraFilled = await Kra.findOne({ month, year: selectedYear });
+    if (isKraFilled) {
+      return res.status(400).json({ message: 'Kra already filed!' });
+    }
+
     const kra = await Kra.create({
       date,
       month,
