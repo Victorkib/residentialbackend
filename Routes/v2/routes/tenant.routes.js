@@ -77,7 +77,7 @@ router.patch(
   authorizeRoles('super_admin'),
   whiteListTenant
 );
-router.put(
+router.patch(
   '/updateSingleTenantData/:id',
   authorizeRoles('super_admin'),
   updateSingleTenantData

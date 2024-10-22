@@ -1598,68 +1598,120 @@ export const whiteListTenant = async (req, res) => {
 export const updateSingleTenantData = async (req, res) => {
   const { id } = req.params;
 
+  // Validate ObjectId format
   if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(400).json({ error: 'Invalid ID format' });
+    return res.status(400).json({ message: 'Invalid ID format' });
   }
 
+  const session = await mongoose.startSession(); // Start a MongoDB session for the transaction
+
   try {
-    const tenant = await Tenant.findById(id);
-    //update the house if it has changed
-    if (tenant.houseDetails.houseNo !== req.body.houseDetails.houseNo) {
-      //make the original house not occupied
-      const houseName = tenant?.houseDetails?.houseNo;
-      const floorNumber = tenant.houseDetails.floorNo;
-      const house = await House.findOneAndUpdate(
+    session.startTransaction(); // Start the transaction
+
+    const tenant = await Tenant.findById(id).session(session);
+
+    // Check if tenant exists
+    if (!tenant) {
+      await session.abortTransaction(); // Abort transaction if tenant not found
+      session.endSession();
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    let newRentValue = tenant.houseDetails.rent; // Default to current rent
+
+    // Check if the apartment has changed
+    const apartmentChanged =
+      tenant.apartmentId.toString() !== req.body.apartmentId._id ||
+      req.body.apartmentId;
+
+    // Check if the house or floor has changed
+    const houseChanged =
+      tenant.houseDetails.houseNo !== req.body.houseDetails.houseNo;
+    const floorChanged =
+      tenant.houseDetails.floorNo !== req.body.houseDetails.floorNo;
+
+    // If the apartment, house, or floor has changed, handle the move
+    if (apartmentChanged || houseChanged || floorChanged) {
+      // Update the original house in the current apartment to mark it as not occupied
+      const oldHouse = await House.findOneAndUpdate(
         {
-          houseName: houseName,
-          floor: floorNumber,
+          houseName: tenant.houseDetails.houseNo,
+          floor: parseFloat(tenant.houseDetails.floorNo),
           apartment: tenant.apartmentId,
         },
         { isOccupied: false },
-        { new: true }
+        { new: true, session }
       );
-      if (!house) {
-        return res.status(404).json({ mesage: 'No previous house found!' });
+
+      if (!oldHouse) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: 'No previous house found!' });
       }
-      //from there make the new chosen house occupied
-      const newHouseName = req?.body?.houseDetails?.houseNo;
-      const newFloorNo = req?.body?.houseDetails?.floorNo;
-      //check if there is a tenant in the new house
+
+      // Check if the new house in the new apartment is already occupied
       const isHouseOccupied = await House.findOne({
-        houseName: newHouseName,
-        floor: newFloorNo,
-        apartment: req.body.apartmentId,
-      });
-      if (isHouseOccupied.isOccupied) {
-        return res.status(400).json({ message: 'New House already occupied!' });
+        houseName: req.body.houseDetails.houseNo,
+        floor: parseFloat(req.body.houseDetails.floorNo),
+        apartment: req.body.apartmentId._id || req.body.apartmentId, // New apartmentId
+      }).session(session);
+
+      if (isHouseOccupied && isHouseOccupied.isOccupied) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: 'New house already occupied!' });
       }
-      //update the new house to be occuppied
+
+      // Mark the new house as occupied
       const newHouse = await House.findOneAndUpdate(
         {
-          houseName: newHouseName,
-          floor: newFloorNo,
-          apartment: req.body.apartmentId,
+          houseName: req.body.houseDetails.houseNo,
+          floor: parseFloat(req.body.houseDetails.floorNo),
+          apartment: req.body.apartmentId._id || req.body.apartmentId, // New apartmentId
         },
         { isOccupied: true },
-        { new: true }
+        { new: true, session }
       );
+
       if (!newHouse) {
-        return res.status(404).json({ mesage: 'No new house found!' });
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: 'No new house found!' });
       }
+
+      // Update the rent with the new house's rent
+      newRentValue = parseFloat(newHouse.rentPayable); // Assuming newHouse has a rentPayable field
     }
 
-    //from there update the rest of the tenant data.
-    const updatedTenant = await Tenant.findByIdAndUpdate(id, req.body, {
-      new: true,
-    });
+    // Prepare the updated tenant details, including houseDetails and new apartmentId if changed
+    tenant.houseDetails.rent = newRentValue; // Update rent in houseDetails
+    tenant.apartmentId =
+      req.body.apartmentId._id || req.body.apartmentId || tenant.apartmentId; // Update apartmentId if changed
+    tenant.houseDetails.houseNo =
+      req.body.houseDetails.houseNo || tenant.houseDetails.houseNo; // Update house number
+    tenant.houseDetails.floorNo =
+      req.body.houseDetails.floorNo || tenant.houseDetails.floorNo; // Update floor number
+    tenant.emergencyContactName =
+      req.body.emergencyContactName || tenant.emergencyContactName; // Update other fields
+    tenant.emergencyContactNumber =
+      req.body.emergencyContactNumber || tenant.emergencyContactNumber;
+    tenant.phoneNo = req.body.phoneNo || tenant.phoneNo;
+    tenant.email = req.body.email || tenant.email;
+    tenant.name = req.body.name || tenant.name;
+    tenant.nationalId = req.body.nationalId || tenant.nationalId;
 
-    if (!updatedTenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
+    // Save the updated tenant
+    const updatedTenant = await tenant.save({ session });
+
+    // If everything is successful, commit the transaction
+    await session.commitTransaction();
+    session.endSession();
 
     return res.status(200).json(updatedTenant);
   } catch (err) {
-    console.error('Error updating tenant:', err.message);
+    await session.abortTransaction(); // Rollback the transaction in case of error
+    session.endSession();
+    console.error('Error updating tenant:', err); // Log full error object
     return res
       .status(500)
       .json({ error: 'Server error', message: err.message });
