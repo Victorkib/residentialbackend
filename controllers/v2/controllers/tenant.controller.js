@@ -606,7 +606,32 @@ export const addDeposits = async (req, res) => {
 
 //add single deposit value
 export const addSingleAmountDeposit = async (req, res) => {
-  const { tenantId, totalAmount, depositDate, referenceNo } = req.body;
+  const {
+    tenantId,
+    totalAmount: ttlAm,
+    depositDate: depoDate,
+    referenceNo: refNo,
+  } = req.body;
+
+  let depositDate;
+  let referenceNo;
+  let totalAmount = 0;
+
+  if (!ttlAm) {
+    totalAmount = parseFloat(totalAmount) + 0;
+  }
+
+  if (!depoDate) {
+    depositDate = new Date();
+  } else {
+    depositDate = depoDate;
+  }
+
+  if (!refNo) {
+    referenceNo = 'ReferenceNo';
+  } else {
+    referenceNo = refNo;
+  }
 
   try {
     const tenant = await Tenant.findById(tenantId);
@@ -627,7 +652,7 @@ export const addSingleAmountDeposit = async (req, res) => {
       parseFloat(requiredInitialRent);
 
     // Initialize amounts
-    let remainingAmount = parseFloat(totalAmount);
+    let remainingAmount = parseFloat(totalAmount) || 0;
     let rentDepositAmount = 0;
     let waterDepositAmount = 0;
     let initialRentPayment = 0;
@@ -648,7 +673,7 @@ export const addSingleAmountDeposit = async (req, res) => {
     tenant.deposits.referenceNo = referenceNo;
 
     // Allocate to rent deposit first
-    if (remainingAmount > 0) {
+    if (parseFloat(remainingAmount) > 0) {
       rentDepositAmount = Math.min(
         remainingAmount,
         parseFloat(houseRentDeposit)
@@ -684,7 +709,7 @@ export const addSingleAmountDeposit = async (req, res) => {
     }
 
     // Allocate to water deposit next
-    if (remainingAmount > 0) {
+    if (parseFloat(remainingAmount) > 0) {
       waterDepositAmount = Math.min(
         remainingAmount,
         parseFloat(houseWaterDeposit)
@@ -756,7 +781,7 @@ export const addSingleAmountDeposit = async (req, res) => {
             tenantDepositRecord = tenant.otherDeposits[depositIndex];
           }
 
-          if (remainingAmount > 0) {
+          if (parseFloat(remainingAmount) > 0) {
             // Calculate how much of the remaining amount can be allocated to this extra deposit
             const extraDepositPaidAmount = Math.min(
               remainingAmount,
@@ -829,9 +854,9 @@ export const addSingleAmountDeposit = async (req, res) => {
     if (
       tenant.deposits.rentDeposit >= houseRentDeposit &&
       tenant.deposits.waterDeposit >= houseWaterDeposit &&
-      remainingAmount > 0
+      parseFloat(remainingAmount) > 0
     ) {
-      if (remainingAmount > 0) {
+      if (parseFloat(remainingAmount) > 0) {
         initialRentPayment = Math.min(remainingAmount, requiredInitialRent);
         remainingAmount -= initialRentPayment;
 
@@ -867,7 +892,7 @@ export const addSingleAmountDeposit = async (req, res) => {
       }
 
       // Handle excess amount
-      excessAmount = remainingAmount; // This can be 0 or more
+      excessAmount = parseFloat(remainingAmount); // This can be 0 or more
       tenant.excessAmount += excessAmount;
       tenant.excessHistory.push({
         date: depositDate,
