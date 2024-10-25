@@ -619,6 +619,8 @@ export const addSingleAmountDeposit = async (req, res) => {
 
   if (!ttlAm) {
     totalAmount = parseFloat(totalAmount) + 0;
+  } else {
+    totalAmount = ttlAm;
   }
 
   if (!depoDate) {
