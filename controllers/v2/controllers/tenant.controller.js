@@ -603,7 +603,7 @@ export const addDeposits = async (req, res) => {
       await createPaymentRecord(
         tenantId,
         remainingInitialRentPayment + totalExcessDeposit,
-        depositDate,
+        formattedPlacementDate,
         referenceNo
       );
     }
@@ -938,9 +938,9 @@ export const addSingleAmountDeposit = async (req, res) => {
         // Create a payment record with the initial rent payment and any excess amount
         await createPaymentRecord(
           tenantId,
-          initialRentPayment + excessAmount,
-          depositDate,
-          referenceNo
+          initialRentPayment + excessAmount, // No change here
+          formattedPlacementDate, // No change here
+          referenceNo // No change here
         );
 
         // After payment is created, update the excess amount to 0
@@ -1332,7 +1332,7 @@ export const updateWithIndividualDepoAmount = async (req, res) => {
       await createPaymentRecord(
         tenantId,
         totalAmount,
-        depositDate,
+        formattedPlacementDate,
         referenceNo
       );
     }
