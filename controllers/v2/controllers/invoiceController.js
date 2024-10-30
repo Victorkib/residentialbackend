@@ -34,6 +34,7 @@ export const createInvoice = async (req, res) => {
             parseFloat(payment.extraCharges.expected) + extraChargeAmount;
           payment.extraCharges.deficit =
             parseFloat(payment.extraCharges.deficit) + extraChargeAmount;
+          payment.extraCharges.paid = false;
 
           // Create a new transaction for the extra charge
           payment.extraCharges.transactions.push({
@@ -76,6 +77,8 @@ export const createInvoice = async (req, res) => {
                 parseFloat(payment.extraCharges.deficit) - remainingExtraCharge;
               payment.overpay =
                 parseFloat(payment.overpay) - remainingExtraCharge;
+              payment.extraCharges.paid =
+                payment.extraCharges.amount >= payment.extraCharges.expected;
 
               // Log the transaction and overpay use
               payment.extraCharges.transactions.push({
@@ -114,6 +117,8 @@ export const createInvoice = async (req, res) => {
               payment.extraCharges.deficit =
                 parseFloat(payment.extraCharges.deficit) - overpayAvailable;
               payment.overpay = 0; // Used up all overpay
+              payment.extraCharges.paid =
+                payment.extraCharges.amount >= payment.extraCharges.expected;
 
               // Log the transaction and overpay use
               payment.extraCharges.transactions.push({
