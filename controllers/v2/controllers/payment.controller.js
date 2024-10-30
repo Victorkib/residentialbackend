@@ -1813,6 +1813,17 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
         globalDeficit: payment.globalDeficit,
       });
 
+      //update the referenceNoHistory array history
+      const paymentCount = payment.referenceNoHistory.length;
+      payment.referenceNoHistory.push({
+        date: extraAmountGivenDate,
+        previousRefNo: payment.referenceNumber,
+        referenceNoUsed: extraAmountReferenceNo,
+        amount: parseFloat(extraAmountProvided) || 0,
+        description: `Payment record number of tinkering:#${paymentCount + 1}`,
+      });
+      payment.referenceNumber = extraAmountReferenceNo;
+
       await payment.save(); // Save the current payment updates
     }
 

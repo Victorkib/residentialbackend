@@ -42,14 +42,20 @@ export const createTenant = async (req, res) => {
     return res.status(400).json({ message: 'All fields required!.' });
   }
 
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     // Check if the houseNo already exists
     const existingTenant = await Tenant.findOne({
       'houseDetails.houseNo': houseNo,
       'houseDetails.floorNo': Number(floorNumber) || 0,
       apartmentId: apartmentId,
-    });
+    }).session(session);
+
     if (existingTenant) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         message: 'House is already assigned to another tenant.',
       });
@@ -60,9 +66,11 @@ export const createTenant = async (req, res) => {
       houseName: houseNo,
       floor: floorNumber,
       apartment: apartmentId,
-    });
+    }).session(session);
 
     if (!housePaymentDetails) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'No such house found!' });
     }
 
@@ -74,7 +82,6 @@ export const createTenant = async (req, res) => {
 
     // Extract other deposits if available
     let otherDeposits = [];
-
     if (
       housePaymentDetails.otherDeposits &&
       Array.isArray(housePaymentDetails.otherDeposits)
@@ -89,8 +96,12 @@ export const createTenant = async (req, res) => {
       });
     }
 
-    const existingNationalId = await Tenant.findOne({ nationalId });
+    const existingNationalId = await Tenant.findOne({ nationalId }).session(
+      session
+    );
     if (existingNationalId) {
+      await session.abortTransaction();
+      session.endSession();
       return res
         .status(409)
         .json({ message: 'Tenant National ID already exists!' });
@@ -101,17 +112,23 @@ export const createTenant = async (req, res) => {
       floor: floorNumber,
       apartment: apartmentId,
       isOccupied: true,
-    });
+    }).session(session);
+
     if (existingTenantInHouse) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: 'House Already Occupied!' });
     }
 
     const house = await House.findOneAndUpdate(
       { floor: floorNumber, houseName: houseNo, apartment: apartmentId },
       { isOccupied: true },
-      { new: true }
+      { new: true, session }
     );
+
     if (!house) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'House not found!' });
     }
 
@@ -130,7 +147,7 @@ export const createTenant = async (req, res) => {
         rentDeposit: parseFloat(rentDeposit),
         waterDeposit: parseFloat(waterDeposit),
         garbageFee: garbageFee,
-        otherDeposits: otherDeposits, // Add other deposits here
+        otherDeposits: otherDeposits,
       },
       deposits: {
         rentDeposit: 0,
@@ -144,10 +161,17 @@ export const createTenant = async (req, res) => {
       emergencyContactName,
     });
 
-    // Save tenant
-    await tenant.save();
+    // Save tenant within the transaction
+    await tenant.save({ session });
+
+    // Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
     res.status(201).json(tenant);
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     res.status(400).json({ message: error.message });
   }
 };
