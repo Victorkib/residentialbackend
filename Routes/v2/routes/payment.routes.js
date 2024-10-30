@@ -28,8 +28,13 @@ router.post(
   authorizeRoles('super_admin'),
   monthlyPayProcessing
 );
+// router.put(
+//   '/ExtraAmountGivenInAmonth/:paymentId',
+//   authorizeRoles('super_admin'),
+//   ExtraAmountGivenInAmonth
+// );
 router.put(
-  '/ExtraAmountGivenInAmonth/:paymentId',
+  '/ExtraAmountGivenInAmonth/:tenantId',
   authorizeRoles('super_admin'),
   ExtraAmountGivenInAmonth
 );
