@@ -1714,6 +1714,8 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
       let tenant = await Tenant.findById(payment.tenant);
       if (!tenant) continue; // Skip if tenant not found
 
+      let totalAmountUsedInCycle = 0; // Track total used in this cycle
+
       // Handle rent deficit
       if (payment.rent.amount < tenant.houseDetails.rent) {
         let rentDeficit = tenant.houseDetails.rent - payment.rent.amount;
@@ -1737,7 +1739,9 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
               ? `Rent deficit of ${rentDeficit} remains`
               : 'Rent deficit fully cleared',
         });
+
         remainingAmount -= amountToClear;
+        totalAmountUsedInCycle += amountToClear; // Track amount used for this cycle
       }
 
       // Handle water deficit
@@ -1768,7 +1772,9 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
               ? `Water deficit of ${waterBillDeficit} remains`
               : 'Water deficit fully cleared',
         });
+
         remainingAmount -= amountToClear;
+        totalAmountUsedInCycle += amountToClear; // Track amount used for this cycle
       }
 
       // Handle garbage fee deficit
@@ -1799,7 +1805,9 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
               ? `Garbage fee deficit of ${garbageDeficit} remains`
               : 'Garbage fee fully cleared',
         });
+
         remainingAmount -= amountToClear;
+        totalAmountUsedInCycle += amountToClear; // Track amount used for this cycle
       }
 
       // Handle extra charges deficit
@@ -1830,7 +1838,9 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
               ? `Extra charges deficit of ${extraChargesDeficit} remains`
               : 'Extra charges fully cleared',
         });
+
         remainingAmount -= amountToClear;
+        totalAmountUsedInCycle += amountToClear; // Track amount used for this cycle
       }
 
       // Check if all deficits are cleared to mark payment as cleared
@@ -1873,13 +1883,13 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
         globalDeficit: payment.globalDeficit,
       });
 
-      //update the referenceNoHistory array history
+      // Update the referenceNoHistory with the total amount used for this cycle
       const paymentCount = payment.referenceNoHistory.length;
       payment.referenceNoHistory.push({
         date: extraAmountGivenDate,
         previousRefNo: payment.referenceNumber,
         referenceNoUsed: extraAmountReferenceNo,
-        amount: parseFloat(extraAmountProvided) || 0,
+        amount: totalAmountUsedInCycle, // Total amount used for this cycle
         description: `Payment record number of tinkering:#${paymentCount + 1}`,
       });
       payment.referenceNumber = extraAmountReferenceNo;
