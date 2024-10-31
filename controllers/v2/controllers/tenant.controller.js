@@ -11,6 +11,7 @@ import ScheduledJob from '../../../models/v2/models/ScheduledJob.js';
 import Invoice from '../../../models/v2/models/Invoice.js';
 import { sendEmail } from '../../../utils/v2/utils/clearanceEmailSender.js';
 import Clearance from '../../../models/v2/models/clearance.model.js';
+import Note from '../../../models/v2/models/Note.model.js';
 
 // Register Tenant Details
 export const createTenant = async (req, res) => {
@@ -477,12 +478,13 @@ export const addDeposits = async (req, res) => {
 
     // Check if the initial rent payment exactly equals the rent amount
     if (remainingInitialRentPayment === tenant.houseDetails.rent) {
-      tenant.deposits.initialRentPayment = remainingInitialRentPayment;
       tenant.deposits.initialRentPaymentHistory.push({
         date: depositDate,
         amount: remainingInitialRentPayment,
         description: `Exact initial rent payment of ${remainingInitialRentPayment} recorded`,
+        previousAmount: tenant.deposits.rentDeposit,
       });
+      tenant.deposits.initialRentPayment = remainingInitialRentPayment;
 
       tenant.deposits.initialRentPaymentDeficit = 0;
       tenant.deposits.initialRentPaymentExcess = 0;
@@ -602,7 +604,7 @@ export const addDeposits = async (req, res) => {
       // Create the payment record
       await createPaymentRecord(
         tenantId,
-        remainingInitialRentPayment + totalExcessDeposit,
+        tenant.deposits.initialRentPayment + totalExcessDeposit,
         formattedPlacementDate,
         referenceNo
       );
@@ -623,7 +625,7 @@ export const addDeposits = async (req, res) => {
 
     res.status(200).json({ message: 'Deposits updated successfully.', tenant });
   } catch (error) {
-    console.error('Error adding deposits:', error);
+    console.error('Error adding deposits:', error.message);
     res.status(500).json({ message: 'Error adding deposits.', error });
   }
 };
@@ -1571,6 +1573,11 @@ export const deleteTenant = async (req, res) => {
     const clearancedata = await Clearance.deleteMany({ tenant: tenant._id });
     const clearancedataDeleted = clearancedata.deletedCount;
     console.log(`Delted clearance Data: `, clearancedataDeleted);
+
+    //check if there are any notes for that tenant and delete them
+    const notes = await Note.deleteMany({ tenantId: tenant });
+    const notesCount = notes.deletedCount;
+    console.log(`Delted notes Data: `, notesCount);
 
     // 4. Set the isOccupied flag of the house to false
     house.isOccupied = false;
@@ -2791,6 +2798,11 @@ const deleteTenantById = async (tenantId) => {
     const clearancedata = await Clearance.deleteMany({ tenant: tenant._id });
     const clearancedataDeleted = clearancedata.deletedCount;
     console.log(`Delted clearance Data: `, clearancedataDeleted);
+
+    //check if there are any notes for that tenant and delete them
+    const notes = await Note.deleteMany({ tenantId: tenant });
+    const notesCount = notes.deletedCount;
+    console.log(`Delted notes Data: `, notesCount);
 
     // 3. Set the isOccupied flag of the house to false
     house.isOccupied = false;

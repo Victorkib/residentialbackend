@@ -11,6 +11,7 @@ import {
   getGroupedPaymentsByTenant,
   getPaymentsByTenantId,
   getAllPayments,
+  getAllPaymentsForAllTenant,
   getAllRentsPaid,
   getAllWaterRecords,
   getAllGarbageRecords,
@@ -44,6 +45,7 @@ router.get('/getGroupedPaymentsByTenant', getGroupedPaymentsByTenant);
 // Route to get Payments By TenantId
 router.get('/getPaymentsByTenantId/:tenant', getPaymentsByTenantId);
 router.get('/getAllPayments', getAllPayments);
+router.get('/getAllPaymentsForAllTenant', getAllPaymentsForAllTenant);
 router.get('/allRents', getAllRentsPaid);
 router.get('/waterRecords', getAllWaterRecords);
 router.get('/garbageRecords', getAllGarbageRecords);

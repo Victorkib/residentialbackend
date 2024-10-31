@@ -1293,6 +1293,59 @@ export const getAllPayments = async (req, res) => {
   }
 };
 
+export const getAllPaymentsForAllTenant = async (req, res) => {
+  try {
+    // Fetch all payments with tenant and apartment data
+    const payments = await Payment.find().populate({
+      path: 'tenant',
+      populate: {
+        path: 'apartmentId', // Populate the apartment linked to the tenant
+        model: 'apartments', // Ensure this matches the name used in your Apartment model
+      },
+    });
+
+    if (!payments || payments.length === 0) {
+      return res.status(400).json({ message: 'No payments made yet' });
+    }
+
+    // Group payments by year and month
+    const groupedPayments = {};
+    payments.forEach((payment) => {
+      const { year, month, isCleared, tenant } = payment;
+
+      // Initialize year and month in groupedPayments if not already present
+      if (!groupedPayments[year]) groupedPayments[year] = {};
+      if (!groupedPayments[year][month]) {
+        groupedPayments[year][month] = {
+          payments: [],
+          unpaidTenants: [],
+        };
+      }
+
+      // Add payment to the respective year and month group
+      groupedPayments[year][month].payments.push(payment);
+
+      // Track tenants with unpaid balances if isCleared is false
+      if (!isCleared && tenant) {
+        const tenantInfo = {
+          tenantId: tenant._id,
+          tenantName: tenant.name, // Adjust based on tenant model
+          houseName: tenant.houseDetails.houseNo, // Adjust based on tenant model
+          floor: tenant.houseDetails.floorNo, // Adjust based on tenant model
+          amountDue: payment.globalDeficit, // Adjust based on payment model
+          apartment: tenant.apartmentId ? tenant.apartmentId.name : null, // Fetch apartment name if exists
+        };
+        groupedPayments[year][month].unpaidTenants.push(tenantInfo);
+      }
+    });
+
+    res.status(200).json(groupedPayments);
+  } catch (err) {
+    console.error('Error fetching payments for all tenants:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // Get payment records for a specific tenant
 export const getPaymentsByTenant = async (req, res) => {
   const { tenantId } = req.params;
