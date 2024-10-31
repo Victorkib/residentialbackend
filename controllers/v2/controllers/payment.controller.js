@@ -1308,13 +1308,38 @@ export const getAllPaymentsForAllTenant = async (req, res) => {
       return res.status(400).json({ message: 'No payments made yet' });
     }
 
+    // console.log('Payments fetched:', payments); // Debugging line
+
     // Group payments by year and month
     const groupedPayments = {};
+    const monthNames = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
     payments.forEach((payment) => {
       const { year, month, isCleared, tenant } = payment;
 
-      // Initialize year and month in groupedPayments if not already present
+      // Initialize year in groupedPayments if not already present
       if (!groupedPayments[year]) groupedPayments[year] = {};
+
+      // Check if month is valid and convert numerical month to month name if necessary
+      if (!monthNames.includes(month)) {
+        // console.warn(`Invalid month: ${month} for payment:`, payment); // Warning line
+        return; // Skip invalid month entries
+      }
+
+      // Initialize month in groupedPayments if not already present
       if (!groupedPayments[year][month]) {
         groupedPayments[year][month] = {
           payments: [],
@@ -1339,7 +1364,23 @@ export const getAllPaymentsForAllTenant = async (req, res) => {
       }
     });
 
-    res.status(200).json(groupedPayments);
+    // Sort years and months
+    const sortedGroupedPayments = {};
+    const sortedYears = Object.keys(groupedPayments).sort((a, b) => b - a); // Sort years in descending order
+
+    sortedYears.forEach((year) => {
+      sortedGroupedPayments[year] = {};
+      const sortedMonths = Object.keys(groupedPayments[year]).sort((a, b) => {
+        return monthNames.indexOf(a) - monthNames.indexOf(b); // Sort months in ascending order
+      });
+
+      sortedMonths.forEach((month) => {
+        sortedGroupedPayments[year][month] = groupedPayments[year][month];
+      });
+    });
+
+    // console.log('Sorted grouped payments:', sortedGroupedPayments); // Debugging line
+    res.status(200).json(sortedGroupedPayments);
   } catch (err) {
     console.error('Error fetching payments for all tenants:', err);
     res.status(500).json({ message: err.message });
