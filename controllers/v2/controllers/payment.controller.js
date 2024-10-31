@@ -1835,10 +1835,10 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
 
       // Check if all deficits are cleared to mark payment as cleared
       payment.isCleared =
-        payment.rent.paid &&
-        payment.waterBill.paid &&
-        payment.garbageFee.paid &&
-        payment.extraCharges.paid;
+        payment.rent.amount >= tenant.houseDetails.rent &&
+        payment.waterBill.amount >= payment.waterBill.accumulatedAmount &&
+        payment.garbageFee.amount >= tenant.houseDetails.garbageFee &&
+        payment.extraCharges.amount >= payment.extraCharges.expected;
 
       // Global deficit and transaction history updates for current payment
       payment.globalDeficit =
@@ -1852,6 +1852,13 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
         totalDeficitAmount: payment.globalDeficit,
         description: 'Updated global deficit after payment adjustments',
       });
+
+      payment.totalAmountPaid =
+        parseFloat(payment.rent.amount || 0) +
+        parseFloat(payment.waterBill.amount || 0) +
+        parseFloat(payment.garbageFee.amount || 0) +
+        parseFloat(payment.extraCharges.amount || 0);
+
       payment.globalTransactionHistory.push({
         year: currentYear,
         month: nextMonth,
