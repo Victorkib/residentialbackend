@@ -1885,9 +1885,12 @@ export const ExtraAmountGivenInAmonth = async (req, res) => {
       }
 
       // Check if all deficits are cleared to mark payment as cleared
+      const waterBillClearedStatus = payment.waterBill.paid
+        ? payment.waterBill.amount >= payment.waterBill.accumulatedAmount
+        : false;
       payment.isCleared =
         payment.rent.amount >= tenant.houseDetails.rent &&
-        payment.waterBill.amount >= payment.waterBill.accumulatedAmount &&
+        waterBillClearedStatus &&
         payment.garbageFee.amount >= tenant.houseDetails.garbageFee &&
         payment.extraCharges.amount >= payment.extraCharges.expected;
 
@@ -2045,17 +2048,89 @@ export const updatePaymentDeficit = async (req, res) => {
       return res.status(400).json({ message: 'No Such payment found' });
     }
 
-    //update rent deficit value
+    // Update rent deficit value
     if (
       parseFloat(updatedRentDeficit) >= 0 &&
       parseFloat(updatedRentDeficit) != parseFloat(payment.rent.deficit)
     ) {
+      // Record the updated deficit in the rent deficit history
       payment.rent.deficitHistory.push({
         amount: updatedRentDeficit,
         date: new Date(),
         description: `Updated rent Deficit amount from ${payment.rent.deficit}`,
       });
+
+      // Update the rent deficit
       payment.rent.deficit = updatedRentDeficit;
+
+      // Use overpay to clear or partially clear the rent deficit if applicable
+      if (
+        parseFloat(payment.overpay) > 0 &&
+        parseFloat(updatedRentDeficit) > 0
+      ) {
+        const initialOverpay = payment.overpay;
+
+        // Calculate how much overpay to use to reduce the deficit
+        let usedOverpay = Math.min(payment.overpay, updatedRentDeficit);
+
+        // Apply overpay to the rent deficit
+        payment.rent.deficit -= usedOverpay;
+        payment.overpay -= usedOverpay;
+
+        // Record this transaction in the excess history
+        payment.excessHistory.push({
+          initialOverpay: initialOverpay,
+          excessAmount: usedOverpay,
+          description: `Used overpay of ${usedOverpay} to partially clear rent deficit.`,
+          date: new Date(),
+        });
+
+        // Record a transaction for using overpay
+        payment.rent.transactions.push({
+          amount: usedOverpay,
+          date: new Date(),
+          referenceNumber: updatedReferenceNumber,
+          description: `Applied overpay of ${usedOverpay} to rent deficit`,
+        });
+
+        // Check if the deficit is fully cleared
+        if (payment.rent.deficit <= 0) {
+          // Deficit is fully cleared
+          payment.rent.deficit = 0;
+          payment.rent.paid = true; // Rent fully paid
+
+          // Add a record to the deficit history that the deficit is fully cleared
+          payment.rent.deficitHistory.push({
+            amount: 0,
+            date: new Date(),
+            description: `Rent deficit fully cleared with overpay of ${usedOverpay}.`,
+          });
+
+          // Check if there is any remaining overpay
+          if (payment.overpay > 0) {
+            // There is still some overpay left after clearing the deficit
+            payment.excessHistory.push({
+              initialOverpay: usedOverpay,
+              excessAmount: payment.overpay,
+              description: `Overpay of ${payment.overpay} remains after clearing rent deficit.`,
+              date: new Date(),
+            });
+          }
+        } else {
+          // Deficit is partially cleared
+          // Add a record to the deficit history reflecting the partial payment
+          payment.rent.deficitHistory.push({
+            amount: payment.rent.deficit,
+            date: new Date(),
+            description: `Rent deficit partially cleared with overpay of ${usedOverpay}. Remaining deficit: ${payment.rent.deficit}.`,
+          });
+        }
+      }
+
+      // Check if the rent deficit is fully cleared and set paid status accordingly
+      if (payment.rent.deficit <= 0) {
+        payment.rent.paid = true;
+      }
     }
 
     //special water handling
@@ -2128,7 +2203,6 @@ export const updatePaymentDeficit = async (req, res) => {
           // Deficit is fully cleared
           payment.waterBill.deficit = 0;
           payment.waterBill.paid = true; // Water bill fully paid
-          payment.isCleared = true; // Set payment as cleared
 
           // Add a record to the deficit history that deficit is fully cleared
           payment.waterBill.deficitHistory.push({
@@ -2161,11 +2235,6 @@ export const updatePaymentDeficit = async (req, res) => {
       // Check if the water bill amount exceeds the accumulated amount and set the paid status
       if (payment.waterBill.amount >= payment.waterBill.accumulatedAmount) {
         payment.waterBill.paid = true;
-      }
-
-      // Check if everything is fully paid and set payment.isCleared to true
-      if (payment.waterBill.paid) {
-        payment.isCleared = true;
       }
     }
 
@@ -2227,6 +2296,26 @@ export const updatePaymentDeficit = async (req, res) => {
       }
     }
 
+    //special water accumulated sent as 0, set payment to paid
+    if (parseFloat(updatedAccumulatedWaterBill) === 0) {
+      payment.waterBill.deficit = updatedAccumulatedWaterBill;
+      payment.waterBill.deficitHistory.push({
+        amount: updatedAccumulatedWaterBill,
+        date: new Date(),
+        description: `Updated water Deficit amount from ${payment.waterBill.deficit}`,
+      });
+
+      payment.waterBill.transactions.push({
+        amount: updatedAccumulatedWaterBill,
+        accumulatedAmount: updatedAccumulatedWaterBill,
+        date: new Date(),
+        referenceNumber: updatedReferenceNumber,
+        description: `Special water update to 0 from ${payment.waterBill.amount}`,
+      });
+      payment.waterBill.amount = updatedAccumulatedWaterBill;
+      payment.waterBill.paid = true;
+    }
+
     //update garbage deficit value
     if (
       parseFloat(updatedGarbageDeficit) >= 0 &&
@@ -2239,6 +2328,23 @@ export const updatePaymentDeficit = async (req, res) => {
         description: `Updated Garbage Deficit amount from ${payment.garbageFee.deficit}`,
       });
       payment.garbageFee.deficit = updatedGarbageDeficit;
+    }
+
+    //special garbage update to 0 update garbage deficit value
+    if (parseFloat(updatedGarbageDeficit) === 0) {
+      payment.garbageFee.deficitHistory.push({
+        amount: 0,
+        date: new Date(),
+        description: `Updated Garbage Deficit amount from ${payment.garbageFee.deficit}`,
+      });
+      payment.garbageFee.deficit = 0;
+
+      payment.garbageFee.transactions.push({
+        amount: payment.garbageFee.amount,
+        date: new Date(),
+        referenceNumber: updatedReferenceNumber,
+      });
+      payment.garbageFee.paid = true;
     }
 
     // Update extra charges deficit

@@ -623,6 +623,38 @@ export const clearDeficitsForPreviousPayments = async (
     }
     amount = parseFloat(amount); // Ensure amount is a number
 
+    // Fetch all previous payments that have a valid overpay amount
+    const previousPaymentWithOverpay = await Payment.find({
+      tenant: tenantId,
+      overpay: { $gt: 0 },
+    }).sort({ createdAt: 1 });
+
+    if (previousPaymentWithOverpay.length > 0) {
+      for (const paymentWithOverpay of previousPaymentWithOverpay) {
+        const overpayAmount = parseFloat(paymentWithOverpay.overpay || 0);
+
+        // Only process if overpay is greater than zero
+        if (overpayAmount > 0) {
+          // Add overpay to the current amount
+          amount = amount + overpayAmount;
+
+          // Record this adjustment in excessHistory
+          paymentWithOverpay.excessHistory.push({
+            initialOverpay: overpayAmount,
+            excessAmount: 0,
+            date: depositDate,
+            description: `Overpay of ${overpayAmount} Extracted so as to be used in monthlyProcessing!!`,
+          });
+
+          // Reset the overpay to 0
+          paymentWithOverpay.overpay = 0;
+
+          // Save the updated payment document
+          await paymentWithOverpay.save();
+        }
+      }
+    }
+
     // Fetch all previous payments for the tenant where isCleared is false, starting from the oldest
     const previousPayments = await Payment.find({
       tenant: tenantId,
@@ -632,21 +664,6 @@ export const clearDeficitsForPreviousPayments = async (
     if (previousPayments?.length > 0) {
       for (const previousPayment of previousPayments) {
         let usedAmount = 0; // Keep track of how much of the amount is used for this payment
-
-        // Check for overpay in this previous payment
-        if (previousPayment.overpay && previousPayment.overpay > 0) {
-          const overpayAmount = parseFloat(previousPayment.overpay);
-          amount = parseFloat(amount) + parseFloat(overpayAmount); // Add the overpay to the current amount
-
-          // Reset the overpay to 0 and record the transaction in excessHistory
-          previousPayment.excessHistory.push({
-            initialOverpay: previousPayment.overpay,
-            excessAmount: 0,
-            date: depositDate,
-            description: `Used overpay of ${overpayAmount} to cover deficits`,
-          });
-          previousPayment.overpay = 0;
-        }
 
         if (amount <= 0) break; // If no more amount is available, break the loop
 
