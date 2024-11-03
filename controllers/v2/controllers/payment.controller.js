@@ -2453,6 +2453,16 @@ export const updatePaymentDeficit = async (req, res) => {
       globalDeficit: newTotalDeficit,
     });
 
+    // Check if all deficits are cleared to mark payment as cleared
+    const waterBillClearedStatus = payment.waterBill.paid
+      ? payment.waterBill.amount >= payment.waterBill.accumulatedAmount
+      : false;
+    payment.isCleared =
+      payment.rent.paid &&
+      waterBillClearedStatus &&
+      payment.garbageFee.paid &&
+      payment.extraCharges.amount >= payment.extraCharges.expected;
+
     await payment.save();
     return res.status(200).json({ payment, success: true });
   } catch (error) {
