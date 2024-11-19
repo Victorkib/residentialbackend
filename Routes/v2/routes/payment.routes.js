@@ -12,6 +12,7 @@ import {
   getPaymentsByTenantId,
   getAllPayments,
   getAllPaymentsForAllTenant,
+  getAllTenantsWithoutPaymentForCurrentMonth,
   getAllRentsPaid,
   getAllWaterRecords,
   getAllGarbageRecords,
@@ -19,6 +20,7 @@ import {
   deletePayment,
 } from '../../../controllers/v2/controllers/payment.controller.js';
 import { authorizeRoles } from '../../../middleware/authorizeRoles.js';
+import { addHouseWaterBill } from '../../../utils/v2/utils/paymentHelper.js';
 const router = express.Router();
 
 router.get('/unpaidPayments/:tenantId', getUnpaidTenantPayments);
@@ -46,6 +48,7 @@ router.get('/getGroupedPaymentsByTenant', getGroupedPaymentsByTenant);
 router.get('/getPaymentsByTenantId/:tenant', getPaymentsByTenantId);
 router.get('/getAllPayments', getAllPayments);
 router.get('/getAllPaymentsForAllTenant', getAllPaymentsForAllTenant);
+router.get('/unpaid', getAllTenantsWithoutPaymentForCurrentMonth);
 router.get('/allRents', getAllRentsPaid);
 router.get('/waterRecords', getAllWaterRecords);
 router.get('/garbageRecords', getAllGarbageRecords);
@@ -62,6 +65,9 @@ router.put(
   authorizeRoles('super_admin'),
   updatePaymentDeficit
 );
+
+//router add the water bill for house
+router.put('/addHouseWaterBill/:tenantId', addHouseWaterBill);
 
 router.get(
   '/getTenantPaymentsForCurrentMonth',

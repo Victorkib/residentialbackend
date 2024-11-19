@@ -1387,6 +1387,59 @@ export const getAllPaymentsForAllTenant = async (req, res) => {
   }
 };
 
+export const getAllTenantsWithoutPaymentForCurrentMonth = async (req, res) => {
+  try {
+    // Get current year and month
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.toLocaleString('default', {
+      month: 'long',
+    }); // e.g., "October"
+
+    // Fetch all tenants
+    const allTenants = await Tenant.find().populate('apartmentId');
+
+    // Fetch all payments made in the current month and year
+    const payments = await Payment.find({
+      year: currentYear,
+      month: currentMonth,
+    }).populate({
+      path: 'tenant',
+      populate: {
+        path: 'apartmentId',
+        model: 'apartments',
+      },
+    });
+
+    // Create a Set of tenant IDs who have made payments
+    const paidTenantIds = new Set(
+      payments.map((payment) => payment.tenant._id.toString())
+    );
+
+    // Filter tenants who haven't made payments for the current month
+    const unpaidTenants = allTenants
+      .filter((tenant) => !paidTenantIds.has(tenant._id.toString()))
+      .map((tenant) => ({
+        tenantId: tenant._id,
+        tenantName: tenant.name,
+        houseName: tenant.houseDetails.houseNo,
+        floor: tenant.houseDetails.floorNo,
+        apartment: tenant.apartmentId ? tenant.apartmentId.name : null,
+      }));
+
+    if (unpaidTenants.length === 0) {
+      return res.status(200).json({
+        message: 'All tenants have made payments for the current month',
+      });
+    }
+
+    res.status(200).json(unpaidTenants);
+  } catch (err) {
+    console.error('Error fetching unpaid tenants for current month:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // Get payment records for a specific tenant
 export const getPaymentsByTenant = async (req, res) => {
   const { tenantId } = req.params;

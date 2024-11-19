@@ -957,3 +957,197 @@ export const clearDeficitsForPreviousPayments = async (
     throw new Error(`Error clearing deficits: ${error.message}`);
   }
 };
+
+export const addHouseWaterBill = async (req, res) => {
+  const { tenantId } = req.params;
+  const { amount: updatedAccumulatedWaterBill, month, year } = req.body;
+  if (!updatedAccumulatedWaterBill || !month) {
+    return res.status(400).json({ message: 'All fields must be Filled!' });
+  }
+  try {
+    //find the tenant
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ message: 'No Such tenant found!' });
+    }
+    //check if there is a payment record of that tenant for that month sent
+    const payment = await Payment.findOne({
+      tenant: tenantId,
+      month: month,
+      year: year,
+      isCleared: false,
+    });
+    if (!payment) {
+      return res
+        .status(400)
+        .json({ message: `No payment record found for ${month}` });
+    }
+
+    if (
+      parseFloat(updatedAccumulatedWaterBill) >= 0 &&
+      parseFloat(updatedAccumulatedWaterBill) !=
+        parseFloat(payment.waterBill.accumulatedAmount)
+    ) {
+      // Record new water transaction for updated accumulated amount
+      payment.waterBill.transactions.push({
+        amount: payment.waterBill.amount,
+        accumulatedAmount: updatedAccumulatedWaterBill,
+        date: new Date(),
+        referenceNumber: payment.referenceNumber,
+        description: `Updated water Accumulated amount from ${payment.waterBill.accumulatedAmount}`,
+      });
+
+      // Update accumulated amount and calculate water coverage
+      payment.waterBill.accumulatedAmount = parseFloat(
+        updatedAccumulatedWaterBill
+      );
+      let waterCoverage =
+        parseFloat(payment.waterBill.accumulatedAmount) -
+        parseFloat(payment.waterBill.amount);
+
+      // Record deficit history
+      payment.waterBill.deficitHistory.push({
+        amount: waterCoverage,
+        date: new Date(),
+        description: `Updated water Deficit amount from ${payment.waterBill.deficit}`,
+      });
+
+      // Update the water deficit
+      payment.waterBill.deficit = waterCoverage;
+
+      // Use overpay to clear or partially clear the water deficit
+      if (parseFloat(payment.overpay) > 0 && parseFloat(waterCoverage) > 0) {
+        const initialOverpay = payment.overpay;
+
+        // Calculate how much overpay to use to reduce the deficit
+        let usedOverpay = Math.min(payment.overpay, waterCoverage);
+
+        // Apply overpay to the water deficit
+        payment.waterBill.deficit -= usedOverpay;
+        payment.overpay -= usedOverpay;
+
+        // Update waterBill amount to reflect the used overpay
+        payment.waterBill.amount += usedOverpay;
+
+        // Record this in the excess history
+        payment.excessHistory.push({
+          initialOverpay: initialOverpay,
+          excessAmount: usedOverpay,
+          description: `Used overpay of ${usedOverpay} to partially clear water deficit.`,
+          date: new Date(),
+        });
+
+        // Record a transaction for the partial or full payment made
+        payment.waterBill.transactions.push({
+          amount: usedOverpay, // The amount of overpay used
+          accumulatedAmount: payment.waterBill.accumulatedAmount, // The updated accumulated amount
+          date: new Date(),
+          referenceNumber: payment.referenceNumber,
+          description: `Used overpay of ${usedOverpay} to partially or fully cover the water bill.`,
+        });
+
+        // Check if the deficit is fully cleared
+        if (payment.waterBill.deficit <= 0) {
+          // Deficit is fully cleared
+          payment.waterBill.deficit = 0;
+          payment.waterBill.paid = true; // Water bill fully paid
+
+          // Add a record to the deficit history that deficit is fully cleared
+          payment.waterBill.deficitHistory.push({
+            amount: 0,
+            date: new Date(),
+            description: `Water deficit fully cleared with overpay of ${usedOverpay}.`,
+          });
+
+          // Check if there is any remaining overpay
+          if (payment.overpay > 0) {
+            // There is still some overpay left after clearing the deficit
+            payment.excessHistory.push({
+              initialOverpay: usedOverpay,
+              excessAmount: payment.overpay,
+              description: `Overpay of ${payment.overpay} remains after clearing water bill deficit.`,
+              date: new Date(),
+            });
+          }
+        } else {
+          // Deficit is partially cleared
+          // Add a record to the deficit history reflecting the partial payment
+          payment.waterBill.deficitHistory.push({
+            amount: payment.waterBill.deficit,
+            date: new Date(),
+            description: `Water deficit partially cleared with overpay of ${usedOverpay}. Remaining deficit: ${payment.waterBill.deficit}.`,
+          });
+        }
+      }
+
+      // Check if the water bill amount exceeds the accumulated amount and set the paid status
+      if (payment.waterBill.amount >= payment.waterBill.accumulatedAmount) {
+        payment.waterBill.paid = true;
+      }
+    }
+
+    //special water accumulated sent as 0, set payment to paid
+    if (parseFloat(updatedAccumulatedWaterBill) === 0) {
+      payment.waterBill.deficit = updatedAccumulatedWaterBill;
+      payment.waterBill.deficitHistory.push({
+        amount: updatedAccumulatedWaterBill,
+        date: new Date(),
+        description: `Updated water Deficit amount from ${payment.waterBill.deficit}`,
+      });
+
+      payment.waterBill.transactions.push({
+        amount: updatedAccumulatedWaterBill,
+        accumulatedAmount: updatedAccumulatedWaterBill,
+        date: new Date(),
+        referenceNumber: payment.referenceNumber,
+        description: `Special water update to 0 from ${payment.waterBill.amount}`,
+      });
+      payment.waterBill.amount = updatedAccumulatedWaterBill;
+      payment.waterBill.paid = true;
+    }
+
+    //update the global deficit
+    let newTotalDeficit =
+      (parseFloat(payment.rent.deficit) || 0) +
+      parseFloat(payment.waterBill.deficit || 0) +
+      parseFloat(payment.garbageFee.deficit || 0) +
+      parseFloat(payment.extraCharges.deficit || 0);
+
+    payment.globalDeficitHistory.push({
+      year: payment.year,
+      month: payment.month,
+      totalDeficitAmount: newTotalDeficit,
+      description: `Global deficit changed from ${payment.globalDeficit} to ${newTotalDeficit}`,
+    });
+    payment.globalDeficit = newTotalDeficit;
+
+    //add global transactional record
+    payment.globalTransactionHistory.push({
+      year: payment.year,
+      month: payment.month,
+      totalRentAmount: payment.rent.amount,
+      totalWaterAmount: payment.waterBill.amount,
+      totalGarbageFee: payment.garbageFee.amount,
+      totalAmount: payment.totalAmountPaid,
+      referenceNumber: payment.referenceNumber,
+      globalDeficit: newTotalDeficit,
+    });
+
+    // Check if all deficits are cleared to mark payment as cleared
+    const waterBillClearedStatus = payment.waterBill.paid
+      ? payment.waterBill.amount >= payment.waterBill.accumulatedAmount
+      : false;
+    payment.isCleared =
+      payment.rent.paid &&
+      waterBillClearedStatus &&
+      payment.garbageFee.paid &&
+      payment.extraCharges.amount >= payment.extraCharges.expected;
+
+    await payment.save();
+    return res.status(200).json(payment);
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: error.message || 'Error adding House Bill!' });
+  }
+};
