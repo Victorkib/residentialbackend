@@ -10,6 +10,7 @@ import {
   getMostRecentPaymentByTenantId,
   // updateWithMultipleDeposits,
   //
+  getTenantsForColors,
   getTenants,
   getListAllTenants,
   getToBeClearedTenants,
@@ -51,6 +52,7 @@ router.put(
 
 // Route to get all tenants
 router.get('/getAllTenants', getListAllTenants);
+router.get('/getTenantsForColors', getTenantsForColors); //getToBeClearedFalse
 router.get('/getToBeClearedFalse', getTenants); //getToBeClearedFalse
 router.get('/getToBeClearedTenantsTrue', getToBeClearedTenants); //getToBeClearedTenantsTrue
 

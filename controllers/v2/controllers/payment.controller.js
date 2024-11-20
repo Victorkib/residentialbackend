@@ -2255,7 +2255,7 @@ export const updatePaymentDeficit = async (req, res) => {
         if (payment.waterBill.deficit <= 0) {
           // Deficit is fully cleared
           payment.waterBill.deficit = 0;
-          payment.waterBill.paid = true; // Water bill fully paid
+          payment.waterBill.paid = true;
 
           // Add a record to the deficit history that deficit is fully cleared
           payment.waterBill.deficitHistory.push({
@@ -2266,7 +2266,6 @@ export const updatePaymentDeficit = async (req, res) => {
 
           // Check if there is any remaining overpay
           if (payment.overpay > 0) {
-            // There is still some overpay left after clearing the deficit
             payment.excessHistory.push({
               initialOverpay: usedOverpay,
               excessAmount: payment.overpay,
@@ -2275,12 +2274,196 @@ export const updatePaymentDeficit = async (req, res) => {
             });
           }
         } else {
-          // Deficit is partially cleared
-          // Add a record to the deficit history reflecting the partial payment
+          // Scenario 1: Current overpay is insufficient, try recent payment's overpay
+          const recentPayment = await Payment.findOne({
+            tenant: payment.tenant,
+          })
+            .sort({ createdAt: -1 })
+            .exec();
+
+          if (recentPayment && recentPayment.overpay > 0) {
+            const initialRecentOverpay = recentPayment.overpay;
+
+            // Calculate how much of the recent overpay to use
+            const usedRecentOverpay = Math.min(
+              recentPayment.overpay,
+              payment.waterBill.deficit
+            );
+
+            // Reduce the water deficit further
+            payment.waterBill.deficit -= usedRecentOverpay;
+
+            // Deduct the used amount from the recent payment's overpay
+            recentPayment.overpay -= usedRecentOverpay;
+
+            // Update the water bill amount
+            payment.waterBill.amount += usedRecentOverpay;
+
+            // Record the usage in the current payment's transaction history
+            payment.waterBill.transactions.push({
+              amount: usedRecentOverpay,
+              accumulatedAmount: payment.waterBill.accumulatedAmount,
+              date: new Date(),
+              referenceNumber: updatedReferenceNumber,
+              description: `Used overpay of ${usedRecentOverpay} from the most recent payment to partially or fully cover the water bill.`,
+            });
+
+            // Record this in the recent payment's excess history
+            recentPayment.excessHistory.push({
+              initialOverpay: initialRecentOverpay,
+              excessAmount: usedRecentOverpay,
+              description: `Used ${usedRecentOverpay} of overpay to clear water deficit for a new payment.`,
+              date: new Date(),
+            });
+
+            // Save the updates to the recent payment
+            await recentPayment.save();
+
+            // Check if the deficit is now cleared
+            if (payment.waterBill.deficit <= 0) {
+              payment.waterBill.deficit = 0;
+              payment.waterBill.paid = true;
+
+              // Add a record to the deficit history
+              payment.waterBill.deficitHistory.push({
+                amount: 0,
+                date: new Date(),
+                description: `Water deficit fully cleared with combined overpay.`,
+              });
+
+              //update reference number
+
+              const paymentCount = payment.referenceNoHistory.length;
+              payment.referenceNoHistory.push({
+                date: new Date(),
+                previousRefNo: payment.referenceNumber,
+                referenceNoUsed: payment.referenceNumber,
+                amount: usedRecentOverpay,
+                description: `Reference Number intact. Payment record number of tinkering:#${
+                  paymentCount + 1
+                }`,
+              });
+              payment.totalAmountPaid = (
+                parseFloat(payment.rent.amount || 0) +
+                parseFloat(payment.waterBill.amount || 0) +
+                parseFloat(payment.garbageFee.amount || 0) +
+                parseFloat(payment.extraCharges.amount || 0)
+              ).toFixed(2);
+            } else {
+              // Add a record to the deficit history reflecting the remaining deficit
+              payment.waterBill.deficitHistory.push({
+                amount: payment.waterBill.deficit,
+                date: new Date(),
+                description: `Water deficit partially cleared with combined overpay. Remaining deficit: ${payment.waterBill.deficit}.`,
+              });
+            }
+          } else {
+            // If no usable overpay is found, log that deficit remains
+            payment.waterBill.deficitHistory.push({
+              amount: payment.waterBill.deficit,
+              date: new Date(),
+              description: `Water deficit remains due to insufficient overpay from all sources.`,
+            });
+          }
+        }
+      } else {
+        // Scenario 2: No current overpay, use recent payment's overpay
+        const recentPayment = await Payment.findOne({
+          tenant: payment.tenant,
+        })
+          .sort({ createdAt: -1 })
+          .exec();
+
+        if (recentPayment && recentPayment.overpay > 0) {
+          const initialRecentOverpay = recentPayment.overpay;
+
+          // Calculate how much of the recent overpay to use
+          const usedRecentOverpay = Math.min(
+            recentPayment.overpay,
+            payment.waterBill.deficit
+          );
+
+          // Reduce the water deficit further
+          payment.waterBill.deficit -= usedRecentOverpay;
+
+          // Deduct the used amount from the recent payment's overpay
+          const recentPaymentOverPayAmount = recentPayment.overpay;
+          recentPayment.overpay -= usedRecentOverpay;
+
+          // Update the water bill amount
+          payment.waterBill.amount += usedRecentOverpay;
+
+          // Record the usage in the current payment's transaction history
+          payment.waterBill.transactions.push({
+            amount: usedRecentOverpay,
+            accumulatedAmount: payment.waterBill.accumulatedAmount,
+            date: new Date(),
+            referenceNumber: updatedReferenceNumber,
+            description: `Used overpay of ${usedRecentOverpay} from the most recent payment to partially or fully cover the water bill.`,
+          });
+
+          // Record this in the recent payment's excess history
+          recentPayment.excessHistory.push({
+            initialOverpay: initialRecentOverpay,
+            excessAmount: usedRecentOverpay,
+            description: `Used ${usedRecentOverpay} of overpay to clear water deficit for a new payment.`,
+            date: new Date(),
+          });
+
+          // Save the updates to the recent payment
+          await recentPayment.save();
+
+          // Check if the deficit is now cleared
+          if (payment.waterBill.deficit <= 0) {
+            payment.waterBill.deficit = 0;
+            payment.waterBill.paid = true;
+
+            // Add a record to the deficit history
+            payment.waterBill.deficitHistory.push({
+              amount: 0,
+              date: new Date(),
+              description: `Water deficit fully cleared with overpay from the most recent payment.`,
+            });
+
+            //update reference number
+
+            const paymentCount = payment.referenceNoHistory.length;
+            //excessAmount;
+            const matchingReference = recentPayment.excessHistory.find(
+              (ref) =>
+                parseFloat(ref.amount || ref.excessAmount) ===
+                parseFloat(recentPaymentOverPayAmount)
+            );
+
+            payment.referenceNoHistory.push({
+              date: matchingReference ? matchingReference.date : new Date(),
+              previousRefNo: payment.referenceNumber,
+              referenceNoUsed: payment.referenceNumber,
+              amount: usedRecentOverpay,
+              description: `Reference Number intact. Payment record number of tinkering:#${
+                paymentCount + 1
+              }`,
+            });
+            payment.totalAmountPaid = (
+              parseFloat(payment.rent.amount || 0) +
+              parseFloat(payment.waterBill.amount || 0) +
+              parseFloat(payment.garbageFee.amount || 0) +
+              parseFloat(payment.extraCharges.amount || 0)
+            ).toFixed(2);
+          } else {
+            // Add a record to the deficit history reflecting the remaining deficit
+            payment.waterBill.deficitHistory.push({
+              amount: payment.waterBill.deficit,
+              date: new Date(),
+              description: `Water deficit partially cleared with overpay from the most recent payment. Remaining deficit: ${payment.waterBill.deficit}.`,
+            });
+          }
+        } else {
+          // No usable overpay found, record the deficit remains
           payment.waterBill.deficitHistory.push({
             amount: payment.waterBill.deficit,
             date: new Date(),
-            description: `Water deficit partially cleared with overpay of ${usedOverpay}. Remaining deficit: ${payment.waterBill.deficit}.`,
+            description: `Water deficit remains due to insufficient overpay from all sources.`,
           });
         }
       }

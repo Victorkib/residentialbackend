@@ -1406,6 +1406,36 @@ export const getTenants = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// Get all Tenants with Pending Payments
+export const getTenantsForColors = async (req, res) => {
+  try {
+    // Find tenants with specific criteria
+    const tenants = await Tenant.find({
+      'deposits.isCleared': true,
+      toBeCleared: false,
+    }).sort({ createdAt: -1 });
+
+    // Fetch pending payments for each tenant
+    const tenantsWithPendingPayments = await Promise.all(
+      tenants.map(async (tenant) => {
+        const pendingPayments = await Payment.find({
+          tenant: tenant._id,
+          isCleared: false,
+        });
+        return {
+          ...tenant.toObject(), // Convert Mongoose document to plain object
+          pendingPayments,
+        };
+      })
+    );
+
+    res.status(200).json(tenantsWithPendingPayments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const getListAllTenants = async (req, res) => {
   try {
     const tenants = await Tenant.find({
