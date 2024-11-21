@@ -20,7 +20,10 @@ import {
   deletePayment,
 } from '../../../controllers/v2/controllers/payment.controller.js';
 import { authorizeRoles } from '../../../middleware/authorizeRoles.js';
-import { addHouseWaterBill } from '../../../utils/v2/utils/paymentHelper.js';
+import {
+  addHouseWaterBill,
+  getReferenceNumberDetails,
+} from '../../../utils/v2/utils/paymentHelper.js';
 const router = express.Router();
 
 router.get('/unpaidPayments/:tenantId', getUnpaidTenantPayments);
@@ -30,6 +33,11 @@ router.post(
   '/monthlyPayProcessing',
   authorizeRoles('super_admin'),
   monthlyPayProcessing
+);
+router.get(
+  '/reference/:referenceNumber',
+  authorizeRoles('super_admin'),
+  getReferenceNumberDetails
 );
 // router.put(
 //   '/ExtraAmountGivenInAmonth/:paymentId',

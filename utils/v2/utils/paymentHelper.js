@@ -1151,3 +1151,66 @@ export const addHouseWaterBill = async (req, res) => {
       .json({ message: error.message || 'Error adding House Bill!' });
   }
 };
+
+export const getReferenceNumberDetails = async (req, res) => {
+  const { referenceNumber } = req.params;
+
+  try {
+    // Find all payments that used the given reference number
+    const payments = await Payment.find({
+      $or: [
+        { referenceNumber },
+        { 'rent.transactions.referenceNumber': referenceNumber },
+        { 'waterBill.transactions.referenceNumber': referenceNumber },
+        { 'garbageFee.transactions.referenceNumber': referenceNumber },
+        { 'extraCharges.transactions.referenceNumber': referenceNumber },
+        { 'referenceNoHistory.referenceNoUsed': referenceNumber },
+      ],
+    }).populate({
+      path: 'tenant',
+      select: 'name email phoneNo houseDetails.floor houseDetails.houseNo',
+    }); // Populate tenant details
+
+    if (!payments || payments.length === 0) {
+      return res.status(404).json({
+        message: `No payment records found for reference number: ${referenceNumber}`,
+      });
+    }
+
+    // Map payment details into a response-friendly format
+    const paymentDetailsList = payments.map((payment) => ({
+      paymentDetails: {
+        month: payment.month,
+        year: payment.year,
+        referenceNumber: payment.referenceNumber,
+      },
+      tenantDetails: payment.tenant
+        ? {
+            name: payment.tenant.name,
+            email: payment.tenant.email,
+            phoneNo: payment.tenant.phoneNo,
+            houseDetails: {
+              floor: payment.tenant.houseDetails.floor,
+              houseNo: payment.tenant.houseDetails.houseNo,
+            },
+          }
+        : null,
+      referenceNoHistoryEntry:
+        payment.referenceNoHistory.find(
+          (entry) => entry.referenceNoUsed === referenceNumber
+        ) || null,
+    }));
+
+    return res.status(200).json({
+      message: 'Reference number details retrieved successfully.',
+      data: paymentDetailsList,
+    });
+  } catch (error) {
+    console.error('Error fetching reference number details:', error);
+    return res.status(500).json({
+      message:
+        'An error occurred while retrieving the reference number details.',
+      error: error.message,
+    });
+  }
+};
